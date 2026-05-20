@@ -56,6 +56,11 @@ async function main() {
     log(`씬 ${script.scenes.length}개 생성`);
   }
 
+  // 음성/속도 오버라이드 (CLI 우선)
+  if (a.voice) script.meta.voice = a.voice;
+  if (a.rate) script.meta.rate = Number(a.rate);
+  if (a.pitch) script.meta.pitch = Number(a.pitch);
+
   // 2) 프로젝트 폴더
   const name = a.name || slugify(script.meta.title);
   const projDir = join(ROOT, "projects", name);

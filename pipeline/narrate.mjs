@@ -40,6 +40,8 @@ export async function narrate({ script, projDir }) {
 
   const lang = script.meta.lang || "ko";
   const voice = script.meta.voice;
+  const rate = script.meta.rate; // 선택: 부드러운 톤을 위해 낮출 수 있음(wpm)
+  const pitch = script.meta.pitch ?? 1; // 선택: <1 이면 톤을 낮춰 따뜻하게
 
   const concatItems = []; // ffmpeg concat 순서
   const lineTimings = []; // {sceneId, text, start, end}
@@ -58,7 +60,7 @@ export async function narrate({ script, projDir }) {
     for (let li = 0; li < lines.length; li++) {
       const text = lines[li];
       const wav = join(partsDir, `s${si}-l${li}.wav`);
-      const dur = await synthLine({ text, lang, voice, outWav: wav });
+      const dur = await synthLine({ text, lang, voice, rate, pitch, outWav: wav });
       const start = round2(t);
       const end = round2(t + dur);
       if (sceneFirstStart[scene.id] === undefined) sceneFirstStart[scene.id] = start;
