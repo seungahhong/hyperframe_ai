@@ -1,0 +1,21 @@
+{
+  "name": "hyperframe-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "링크(영상/기술 블로그) → 자막/본문 요약 → AI 내레이션 → HyperFrames 모션그래픽 영상 자동 제작 파이프라인",
+  "bin": {
+    "hf-ai": "pipeline/run.mjs"
+  },
+  "scripts": {
+    "make": "node pipeline/run.mjs",
+    "make:youtube": "node pipeline/run.mjs --type youtube",
+    "make:blog": "node pipeline/run.mjs --type blog",
+    "preview": "node pipeline/preview.mjs",
+    "doctor": "node pipeline/doctor.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "hyperframesVersion": "0.6.29"
+}
