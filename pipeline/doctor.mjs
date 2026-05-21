@@ -19,6 +19,7 @@ const checks = await Promise.all([
   check("ffprobe", "ffprobe", ["-version"]),
   check("macOS say (한국어 TTS)", "say", ["-v", "?"]),
   check("uvx (yt-dlp 런처)", "uvx", ["--version"]),
+  check("deno (유튜브 JS 런타임)", "deno", ["--version"]),
 ]);
 
 let allOk = true;

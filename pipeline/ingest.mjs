@@ -32,6 +32,9 @@ async function downloadYtSubs({ url, lang, tmp, cookieArgs = [] }) {
     "yt-dlp",
     ...cookieArgs,
     "--skip-download",
+    // 로그인(쿠키) 세션은 impersonation/PO-token을 요구해 포맷 해석이 실패할 수 있다.
+    // 자막 전용 다운로드라 포맷이 없어도 진행하도록 에러를 무시한다(익명 경로엔 무해).
+    "--ignore-no-formats-error",
     "--write-auto-subs",
     "--write-subs",
     "--sub-langs",
@@ -60,7 +63,15 @@ async function ingestYoutube({ url, lang, cookies, cookiesFromBrowser }) {
   let title = "youtube";
   try {
     title = String(
-      await capture("uvx", ["yt-dlp", ...cookieArgs, "--skip-download", "--print", "%(title)s", url]),
+      await capture("uvx", [
+        "yt-dlp",
+        ...cookieArgs,
+        "--skip-download",
+        "--ignore-no-formats-error",
+        "--print",
+        "%(title)s",
+        url,
+      ]),
     ).trim();
   } catch {}
 

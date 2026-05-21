@@ -40,13 +40,17 @@ brew install node
 brew install ffmpeg
 ```
 
-### 1-3. uv / uvx (유튜브 자막 다운로드용 `yt-dlp` 런처)
+### 1-3. uv / uvx + deno (유튜브 자막 다운로드용)
 
 > 유튜브(`--type youtube`) 입력을 쓸 때만 필요합니다. SRT·블로그·직접 작성 스크립트만 쓴다면 생략 가능.
 
+`uvx`는 `yt-dlp` 런처이고, **deno** 는 yt-dlp가 YouTube의 JS 챌린지(서명·n-challenge)를
+풀 때 필요한 런타임입니다. 둘 다 없으면 유튜브 자막을 받지 못합니다(`Requested format is not available`).
+
 ```bash
-brew install uv
+brew install uv deno
 # 또는: curl -LsSf https://astral.sh/uv/install.sh | sh
+#       curl -fsSL https://deno.land/install.sh | sh
 ```
 
 ### 1-4. 한국어 음성 "Yuna" 활성화 (macOS 내장)
@@ -255,6 +259,7 @@ projects/<name>/
 | `say` 한국어가 무음 | 신형 음성 사용 중. **`Yuna`** 로 지정(`--voice Yuna`). 1-4 참고 |
 | `Yuna` 가 없다고 나옴 | 시스템 설정에서 한국어 Yuna 음성 다운로드 (1-4) |
 | 유튜브 "자막을 찾지 못했습니다" | 익명으로 자막이 없음. `--cookies-from-browser chrome`(로그인 자막) 또는 다른 언어(`--lang en`)로 시도하거나 SRT 직접 사용 |
+| 유튜브 `Requested format is not available` | yt-dlp의 JS 런타임 누락. `brew install deno` 후 재시도 (1-3 참고) |
 | `ffprobe`/`ffmpeg` 없음 | `brew install ffmpeg` |
 | 요약 품질이 낮음 | `ANTHROPIC_API_KEY` 설정(1-5) 또는 `script.json` 직접 작성(4번) |
 | 렌더가 느림 | 먼저 `--quality draft` 로 확인 후 `standard`/`high` 재렌더 |
