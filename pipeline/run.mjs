@@ -4,9 +4,11 @@
 // 사용 예:
 //   node pipeline/run.mjs --type srt --file assets/transcripts/x.ko.srt --name my-video
 //   node pipeline/run.mjs --type youtube --url "https://youtu.be/..." --lang ko
+//   node pipeline/run.mjs --type youtube --url "..." --cookies-from-browser chrome   # 로그인 자막
 //   node pipeline/run.mjs --type blog --url "https://blog..." --lang ko
 //   node pipeline/run.mjs --script projects/demo/script.json --name demo   # 사전 작성 스크립트 사용
 //   옵션: --quality draft|standard|high  --fps 24|30|60  --no-render  --lang ko
+//        --cookies-from-browser chrome|safari|edge|firefox  --cookies <cookies.txt>
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,7 +45,14 @@ async function main() {
     script = JSON.parse(await readFile(a.script, "utf8"));
   } else {
     log(`인제스트 (${a.type})...`);
-    const src = await ingest({ type: a.type, url: a.url, file: a.file, lang: a.lang });
+    const src = await ingest({
+      type: a.type,
+      url: a.url,
+      file: a.file,
+      lang: a.lang,
+      cookies: a.cookies,
+      cookiesFromBrowser: a["cookies-from-browser"],
+    });
     log(`본문 ${src.text.length}자 확보 — "${src.title}"`);
     log(`요약 → 씬 스크립트...`);
     script = await summarize({

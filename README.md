@@ -126,6 +126,9 @@ node pipeline/run.mjs --type srt --file assets/transcripts/reference-tutorial.ko
 # ① 유튜브 영상 → 요약 영상  (자막을 yt-dlp로 받아옴, uvx 필요)
 node pipeline/run.mjs --type youtube --url "https://youtu.be/<id>" --lang ko --name my-vid
 
+# ①-b 자막이 공개돼 있지 않을 때 — 로그인 쿠키로 실시간/자동 자막 접근
+node pipeline/run.mjs --type youtube --url "https://youtu.be/<id>" --cookies-from-browser chrome --name my-vid
+
 # ② 기술 블로그 글 → 요약 영상  (URL 본문을 추출)
 node pipeline/run.mjs --type blog --url "https://blog.example.com/post" --lang ko --name my-vid
 
@@ -149,6 +152,12 @@ node pipeline/run.mjs --script projects/my-vid/script.json --name my-vid
 | `--rate` | 숫자(wpm) | 말 속도. 낮을수록 천천히 (기본 165, 한국어는 150 권장) |
 | `--pitch` | 숫자 | 음높이. `<1`이면 톤을 낮춰 따뜻하게 (예: `0.90`) |
 | `--topic` | 문자열 | 요약 시 주제 힌트 |
+| `--cookies-from-browser` | `chrome`·`safari`·`edge`·`firefox` | (유튜브) 로그인 쿠키로 비공개/실시간 자막 접근 |
+| `--cookies` | `cookies.txt` 경로 | (유튜브) Netscape 형식 쿠키 파일 사용 |
+
+> 유튜브 자막이 익명으로 잡히지 않을 때(로그인·멤버십·라이브 자동 자막 등), 쿠키를 주면
+> **익명 시도 실패 후 쿠키로 자동 재시도**합니다. `--cookies` 파일이 `--cookies-from-browser`보다 우선합니다.
+> Safari는 터미널에 "전체 디스크 접근 권한"이, Chrome은 일부 환경에서 키체인 접근이 필요할 수 있습니다.
 
 > 음성 톤은 `--rate 150 --pitch 0.90` 조합이 차분하고 따뜻한 한국어 내레이션에 잘 맞습니다.
 > script.json의 `meta.rate`/`meta.pitch` 로도 지정할 수 있으며, CLI 옵션이 우선합니다.
@@ -245,7 +254,7 @@ projects/<name>/
 | --- | --- |
 | `say` 한국어가 무음 | 신형 음성 사용 중. **`Yuna`** 로 지정(`--voice Yuna`). 1-4 참고 |
 | `Yuna` 가 없다고 나옴 | 시스템 설정에서 한국어 Yuna 음성 다운로드 (1-4) |
-| 유튜브 "자막을 찾지 못했습니다" | 해당 영상에 자막이 없음. 다른 언어(`--lang en`)로 시도하거나 SRT 직접 사용 |
+| 유튜브 "자막을 찾지 못했습니다" | 익명으로 자막이 없음. `--cookies-from-browser chrome`(로그인 자막) 또는 다른 언어(`--lang en`)로 시도하거나 SRT 직접 사용 |
 | `ffprobe`/`ffmpeg` 없음 | `brew install ffmpeg` |
 | 요약 품질이 낮음 | `ANTHROPIC_API_KEY` 설정(1-5) 또는 `script.json` 직접 작성(4번) |
 | 렌더가 느림 | 먼저 `--quality draft` 로 확인 후 `standard`/`high` 재렌더 |
@@ -258,6 +267,8 @@ projects/<name>/
 | `ANTHROPIC_API_KEY` | 고품질 요약(Claude API) 활성화 |
 | `HF_LLM_MODEL` | 요약 모델 변경 (기본 `claude-sonnet-4-6`) |
 | `HF_TTS_BACKEND` | TTS 백엔드 강제 (`say` \| `kokoro`) |
+| `HF_YT_COOKIES` | (유튜브) 쿠키 파일 경로 — CLI `--cookies` 미지정 시 폴백 |
+| `HF_YT_COOKIES_FROM_BROWSER` | (유튜브) 쿠키 추출 브라우저 — CLI 미지정 시 폴백 |
 
 ---
 
