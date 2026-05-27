@@ -28,10 +28,27 @@ test("splitCaption: 잘라내지 않고(글자 손실 없이) 청크로 분할",
 });
 
 test("summarize 폴백: 화면 항목 짧고, 자막은 더 많고, 어디에도 … 없음", async () => {
-  const text = Array.from({ length: 12 }, (_, i) =>
-    `${i + 1}번 항목으로 구글은 제미나이 3.5를 통해 에이전트와 코딩 성능을 크게 끌어올렸고, 비용은 절반 이하로 낮췄습니다.`,
-  ).join(" ");
-  const script = await summarize({ text, title: "제미나이 3.5 발표 요약 매우 긴 제목 테스트", lang: "ko" });
+  // 폴백 경로 검증이므로 외부 LLM(Ollama·Claude) 비활성화.
+  const prev = {
+    OLLAMA: process.env.HF_OLLAMA_URL,
+    ANTHROPIC: process.env.ANTHROPIC_API_KEY,
+  };
+  process.env.HF_OLLAMA_URL = "http://127.0.0.1:1";   // 닫힌 포트 → 즉시 폴백
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const text = Array.from({ length: 12 }, (_, i) =>
+      `${i + 1}번 항목으로 구글은 제미나이 3.5를 통해 에이전트와 코딩 성능을 크게 끌어올렸고, 비용은 절반 이하로 낮췄습니다.`,
+    ).join(" ");
+    const script = await summarize({ text, title: "제미나이 3.5 발표 요약 매우 긴 제목 테스트", lang: "ko" });
+    runFallbackAssertions(script);
+  } finally {
+    if (prev.OLLAMA === undefined) delete process.env.HF_OLLAMA_URL;
+    else process.env.HF_OLLAMA_URL = prev.OLLAMA;
+    if (prev.ANTHROPIC !== undefined) process.env.ANTHROPIC_API_KEY = prev.ANTHROPIC;
+  }
+});
+
+function runFallbackAssertions(script) {
 
   assert.ok(script.scenes.length >= 3, "씬 3개 이상");
   let itemCount = 0;
@@ -50,4 +67,4 @@ test("summarize 폴백: 화면 항목 짧고, 자막은 더 많고, 어디에도
   }
   // 자막/보이스(lines)가 화면 항목(items)보다 더 많은 정보를 담아야 한다.
   assert.ok(lineCount >= itemCount, `자막 ${lineCount} ≥ 항목 ${itemCount}`);
-});
+}

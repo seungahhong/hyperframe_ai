@@ -36,9 +36,14 @@ export async function compose({ script, transcript, projDir }) {
   const caps = buildCaptions(transcript);
   animBlocks.push(caps.anim);
 
+  // ---- 인트로 카드: [0, transcript.intro) 구간에 정적으로 영상 정보를 보여준다 ----
+  const intro = renderIntro(script, transcript);
+  if (intro) animBlocks.unshift(intro.anim);
+
   const html = pageHtml({
     title: script.meta.title,
     total,
+    introHtml: intro ? intro.html : "",
     sceneHtml: sceneHtml.join("\n\n"),
     captionHtml: caps.html,
     animJs: animBlocks.join("\n\n"),
@@ -145,10 +150,22 @@ tl.fromTo("${sel} .st-sub", {opacity:0}, {opacity:1, duration:0.5}, ${s + 0.9});
 
 function renderList(scene, accent, sel) {
   const items = scene.data.items && scene.data.items.length ? scene.data.items : scene.lines;
+  // 방어선: LLM이 list.items에 {label,value} 객체를 넣은 경우 "[object Object]" 가 표시되지 않도록.
+  const itemStr = (it) => {
+    if (typeof it === "string") return it;
+    if (it && typeof it === "object") {
+      const l = it.label || it.title || it.text || it.name;
+      const v = it.value ?? it.val;
+      if (l && v != null) return `${l} ${v}`;
+      if (l) return String(l);
+      if (v != null) return String(v);
+    }
+    return String(it ?? "");
+  };
   const lis = items
     .map(
       (it, i) =>
-        `          <li class="ls-item"><span class="ls-idx" style="color:${accent}">${String(i + 1).padStart(2, "0")}</span><span class="ls-txt">${esc(it)}</span></li>`,
+        `          <li class="ls-item"><span class="ls-idx" style="color:${accent}">${String(i + 1).padStart(2, "0")}</span><span class="ls-txt">${esc(itemStr(it))}</span></li>`,
     )
     .join("\n");
   const html = `        <div class="ls-wrap">
@@ -229,6 +246,44 @@ tl.fromTo("${sel} .cta-line", {y:30, opacity:0}, {y:0, opacity:1, duration:0.5, 
 }
 
 // ----------------------------------------------------------------------------
+// 인트로 카드: 영상 첫 ~2.5초 동안 정적으로 "어떤 영상의 요약인지"를 알려준다.
+// 본 내레이션·씬 시작 전 무음 구간을 활용하며, transcript.intro 가 그 길이.
+// ----------------------------------------------------------------------------
+function renderIntro(script, transcript) {
+  const dur = Number(transcript?.intro) || 0;
+  if (dur <= 0) return null;
+  const meta = script.meta || {};
+  const title = meta.title || "요약 영상";
+  const subtitle = meta.subtitle || "";
+  // 출처는 도메인 + 짧은 path 만 보여 가독성 확보(전체 URL은 길어서 잘림 발생).
+  let source = "";
+  if (meta.source) {
+    try {
+      const u = new URL(meta.source);
+      source = u.host + (u.pathname && u.pathname !== "/" ? u.pathname : "");
+      if (source.length > 60) source = source.slice(0, 57) + "...";
+    } catch { source = String(meta.source).slice(0, 60); }
+  }
+  const fadeIn = 0.5;
+  const fadeOutStart = Math.max(0, dur - 0.4);
+  const html = `      <div class="intro" id="intro-card">
+        <div class="intro-tag">오늘의 요약</div>
+        <h1 class="intro-title">${esc(title)}</h1>
+        ${subtitle ? `<p class="intro-sub">${esc(subtitle)}</p>` : ""}
+        ${source ? `<p class="intro-source">출처 · ${esc(source)}</p>` : ""}
+        <div class="intro-hint">잠시 후 설명이 시작됩니다</div>
+      </div>`;
+  const anim = [
+    "// intro card (0 → INTRO)",
+    `tl.set("#intro-card", {display:"flex"}, 0);`,
+    `tl.fromTo("#intro-card", {opacity:0, y:18}, {opacity:1, y:0, duration:${fadeIn}, ease:"power2.out"}, 0);`,
+    `tl.to("#intro-card", {opacity:0, duration:0.4, ease:"power2.in"}, ${fadeOutStart});`,
+    `tl.set("#intro-card", {display:"none"}, ${dur});`,
+  ].join("\n");
+  return { html, anim };
+}
+
+// ----------------------------------------------------------------------------
 // 자막: 라인 단위 클립. 같은 씬 안에서는 다음 라인 시작까지 유지(깜빡임 방지).
 // ----------------------------------------------------------------------------
 function buildCaptions(transcript) {
@@ -253,7 +308,7 @@ function buildCaptions(transcript) {
 // ----------------------------------------------------------------------------
 // 페이지 셸
 // ----------------------------------------------------------------------------
-function pageHtml({ title, total, sceneHtml, captionHtml, animJs }) {
+function pageHtml({ title, total, introHtml, sceneHtml, captionHtml, animJs }) {
   return `<!doctype html>
 <html lang="ko">
   <head>
@@ -325,11 +380,21 @@ function pageHtml({ title, total, sceneHtml, captionHtml, animJs }) {
       .cta-rule{width:160px;height:10px;border-radius:5px;margin:0 auto 44px}
       .cta-line{font-size:62px;font-weight:600;color:var(--dim);line-height:1.25}
       .cta-strong{font-size:96px;font-weight:900;color:var(--ink);margin-bottom:18px;letter-spacing:-.03em}
+
+      /* intro card (영상 시작 시 정적으로 영상 정보 표시) */
+      .intro{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;padding:0 180px;box-sizing:border-box;text-align:center;z-index:5;}
+      .intro-tag{font-size:34px;font-weight:700;letter-spacing:.18em;color:${THEME.accent};margin-bottom:36px;text-transform:uppercase;}
+      .intro-title{font-size:110px;font-weight:900;line-height:1.05;letter-spacing:-.03em;margin:0;color:var(--ink);max-width:1500px;word-break:keep-all;}
+      .intro-sub{font-size:44px;font-weight:500;color:var(--dim);margin:28px 0 0;max-width:1400px;word-break:keep-all;}
+      .intro-source{font-size:28px;font-weight:500;color:${THEME.inkDim};margin:48px 0 0;font-family:${THEME.fontMono};letter-spacing:.02em;opacity:.85;}
+      .intro-hint{position:absolute;bottom:80px;left:0;right:0;font-size:24px;color:${THEME.inkDim};letter-spacing:.1em;opacity:.7;}
     </style>
   </head>
   <body>
     <div id="master-root" data-composition-id="master" data-width="${THEME.width}" data-height="${THEME.height}" data-start="0" data-duration="${total}">
       <audio id="narration" class="clip" data-start="0" data-duration="${total}" data-volume="1" data-track-index="0" src="audio/narration.wav"></audio>
+
+${introHtml}
 
 ${sceneHtml}
 

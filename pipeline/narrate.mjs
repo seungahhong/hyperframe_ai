@@ -5,10 +5,11 @@
 // Whisper 추정 없이도 오디오와 모션그래픽의 싱크가 정확히 맞는다.
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { synthLine } from "../lib/tts.mjs";
+import { synthLines } from "../lib/tts.mjs";
 import { capture, mediaDuration, round2 } from "../lib/util.mjs";
 
-const LEAD = 0.3; // 시작 무음
+const INTRO = 2.5; // 정적 인트로 카드 표시 시간(무음). 영상이 어떤 요약인지 먼저 보여준다.
+const LEAD = 0.3; // 인트로 종료 후, 본 내레이션 시작 전 짧은 무음
 const LINE_GAP = 0.18; // 같은 씬 내 라인 사이
 const SCENE_GAP = 0.45; // 씬 경계
 const TAIL = 0.6; // 마지막 여운
@@ -43,39 +44,55 @@ export async function narrate({ script, projDir }) {
   const rate = script.meta.rate; // 선택: 부드러운 톤을 위해 낮출 수 있음(wpm)
   const pitch = script.meta.pitch ?? 1; // 선택: <1 이면 톤을 낮춰 따뜻하게
 
-  const concatItems = []; // ffmpeg concat 순서
-  const lineTimings = []; // {sceneId, text, start, end}
-  let t = LEAD;
-
-  // 시작 무음
-  const leadSil = join(partsDir, "lead.wav");
-  await makeSilence(LEAD, leadSil);
-  concatItems.push(leadSil);
-
-  const sceneFirstStart = {};
-
+  // Pass 1: 라인 항목 평탄화(씬 정보·갭 메타와 함께).
+  //  · 모델 로드 비용이 큰 백엔드(XTTS)에서 전체를 한 번에 합성하기 위함.
+  const flat = [];
   for (let si = 0; si < script.scenes.length; si++) {
     const scene = script.scenes[si];
     const lines = scene.lines.length ? scene.lines : [scene.heading].filter(Boolean);
     for (let li = 0; li < lines.length; li++) {
-      const text = lines[li];
-      const wav = join(partsDir, `s${si}-l${li}.wav`);
-      const dur = await synthLine({ text, lang, voice, rate, pitch, outWav: wav });
-      const start = round2(t);
-      const end = round2(t + dur);
-      if (sceneFirstStart[scene.id] === undefined) sceneFirstStart[scene.id] = start;
-      lineTimings.push({ sceneId: scene.id, text, start, end });
-      concatItems.push(wav);
-      t = end;
-
-      const lastOverall = si === script.scenes.length - 1 && li === lines.length - 1;
-      const lastInScene = li === lines.length - 1;
-      const gap = lastOverall ? TAIL : lastInScene ? SCENE_GAP : LINE_GAP;
-      const sil = join(partsDir, `s${si}-l${li}-gap.wav`);
-      await makeSilence(gap, sil);
-      concatItems.push(sil);
-      t = round2(t + gap);
+      flat.push({
+        sceneId: scene.id,
+        si,
+        li,
+        text: lines[li],
+        outWav: join(partsDir, `s${si}-l${li}.wav`),
+        lastInScene: li === lines.length - 1,
+        lastOverall: si === script.scenes.length - 1 && li === lines.length - 1,
+      });
     }
+  }
+
+  // Pass 2: 백엔드별 최적 경로(XTTS=배치, say/kokoro=루프)로 한 번에 합성.
+  const durations = await synthLines({
+    items: flat.map((f) => ({ text: f.text, outWav: f.outWav })),
+    lang, voice, rate, pitch,
+  });
+
+  // Pass 3: 무음 갭과 함께 concat 리스트 구성 + 타이밍 누적.
+  const concatItems = [];
+  const lineTimings = [];
+  const sceneFirstStart = {};
+  // 시작 무음 = 인트로 카드 표시 시간(INTRO) + 내레이션 직전 짧은 LEAD
+  const totalLead = INTRO + LEAD;
+  let t = totalLead;
+  const leadSil = join(partsDir, "lead.wav");
+  await makeSilence(totalLead, leadSil);
+  concatItems.push(leadSil);
+  for (let i = 0; i < flat.length; i++) {
+    const f = flat[i];
+    const start = round2(t);
+    const end = round2(t + durations[i]);
+    if (sceneFirstStart[f.sceneId] === undefined) sceneFirstStart[f.sceneId] = start;
+    lineTimings.push({ sceneId: f.sceneId, text: f.text, start, end });
+    concatItems.push(f.outWav);
+    t = end;
+
+    const gap = f.lastOverall ? TAIL : f.lastInScene ? SCENE_GAP : LINE_GAP;
+    const sil = join(partsDir, `s${f.si}-l${f.li}-gap.wav`);
+    await makeSilence(gap, sil);
+    concatItems.push(sil);
+    t = round2(t + gap);
   }
   const total = round2(t);
 
@@ -107,9 +124,10 @@ export async function narrate({ script, projDir }) {
   const measuredTotal = round2(await mediaDuration(narrationWav));
 
   // 씬 타일링: 각 씬 비주얼이 다음 씬 직전까지 유지되도록 경계를 잡는다.
+  // 첫 씬 비주얼은 인트로 카드 종료 시점(INTRO)부터 시작.
   const scenes = script.scenes;
   for (let i = 0; i < scenes.length; i++) {
-    scenes[i].start = i === 0 ? 0 : undefined;
+    scenes[i].start = i === 0 ? INTRO : undefined;
   }
   for (let i = 1; i < scenes.length; i++) {
     const fs = sceneFirstStart[scenes[i].id] ?? lineTimings.find((l) => l.sceneId === scenes[i].id)?.start ?? 0;
@@ -122,6 +140,7 @@ export async function narrate({ script, projDir }) {
 
   const transcript = {
     total: measuredTotal,
+    intro: INTRO,
     audio: "audio/narration.wav",
     lines: lineTimings,
     scenes: scenes.map((s) => ({ id: s.id, start: s.start, duration: s.duration })),

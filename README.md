@@ -53,6 +53,28 @@ brew install uv deno
 #       curl -fsSL https://deno.land/install.sh | sh
 ```
 
+### 1-3-b. 한국어 TTS — Microsoft Edge TTS (기본)
+
+한국어 내레이션은 **Microsoft Edge TTS** (무료·Neural 음성)가 기본입니다. 별도 셋업 없이 `uvx`로 즉시 호출되며, 음성·말 속도·피치는 CLI/스크립트로 조절됩니다.
+
+```bash
+# 한국어 기본 음성: ko-KR-SunHiNeural (여성, 친근 톤)
+HF_EDGE_VOICE=ko-KR-InJoonNeural node pipeline/run.mjs ...   # 남성 음성으로 변경
+# 사용 가능한 한국어 음성 목록
+uvx --from edge-tts edge-tts --list-voices | grep ko-KR
+```
+
+> Edge TTS는 합성 시 MS 서버로 짧은 HTTP 요청을 보냅니다. 완전 오프라인이 필요하면 아래 `say` 또는 `xtts` 백엔드를 선택하세요.
+
+#### 대체 백엔드
+
+| 백엔드 | 사용법 | 특징 |
+|---|---|---|
+| `edge`(기본) | (자동) | 무료·Neural·고품질, 온라인 |
+| `say` | `HF_TTS_BACKEND=say` | macOS 내장(`Yuna`), 오프라인, 기계적 |
+| `xtts` | `bash lib/xtts/setup.sh` → `HF_TTS_BACKEND=xtts` | 오프라인 다운로드(~2GB), 자연 Neural |
+| `kokoro` | (자동 en/ja/zh) | HyperFrames 내장, 한국어 미지원 |
+
 ### 1-4. 한국어 음성 "Yuna" 활성화 (macOS 내장)
 
 macOS의 `say` 명령은 기본 제공되지만, **한국어 Yuna 음성은 직접 내려받아야** 할 수 있습니다.
@@ -69,14 +91,24 @@ say -v Yuna "안녕하세요, 테스트입니다."   # 소리가 나면 정상
 > ⚠️ macOS의 신형(프리미엄) 한국어 음성은 `say`로 합성 시 무음이 나오는 경우가 있습니다.
 > **반드시 `Yuna`** 를 사용하세요. (영어/일어/중국어는 HyperFrames 내장 Kokoro 음성을 자동 사용)
 
-### 1-5. (선택) 고품질 요약을 위한 Claude API 키
+### 1-5. (선택) 고품질 요약 — Ollama 또는 Claude API
 
-요약 단계는 **API 키가 있으면 Claude로 고품질 씬 구성**을, 없으면 규칙 기반 추출식 폴백을 씁니다.
-키가 없어도 동작하지만, 결과 품질 차이가 큽니다. 키가 있다면 환경변수로 등록하세요.
+요약 단계의 우선순위는 **(A) Ollama 로컬 LLM → (B) Claude API → (C) 추출식 폴백** 입니다. 모두 자동 분기.
 
+**A. Ollama (권장: 무료·완전 오프라인)**
+```bash
+brew install ollama && ollama serve &       # 서버 기동(한 번)
+ollama pull gemma4:26b                      # 한국어 강력, 17GB. 가벼우면 gemma4:e4b(9.6GB)
+# 모델 변경: 환경변수로 오버라이드
+export HF_OLLAMA_MODEL=gemma4:e4b
+```
+
+**B. Claude API (대안)**
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."     # ~/.zshrc 등에 넣어두면 편합니다
 ```
+
+Ollama 서버가 떠 있고 지정된 모델이 받아져 있으면 무조건 Ollama가 우선됩니다.
 
 ### 1-6. 의존성 — 별도 설치 불필요
 
@@ -158,6 +190,7 @@ node pipeline/run.mjs --script projects/my-vid/script.json --name my-vid
 | `--topic` | 문자열 | 요약 시 주제 힌트 |
 | `--cookies-from-browser` | `chrome`·`safari`·`edge`·`firefox` | (유튜브) 로그인 쿠키로 비공개/실시간 자막 접근 |
 | `--cookies` | `cookies.txt` 경로 | (유튜브) Netscape 형식 쿠키 파일 사용 |
+| `--refresh` | (플래그) | `raw.json`·`script.json` 캐시를 무시하고 인제스트/요약 재실행 |
 
 > 유튜브 자막이 익명으로 잡히지 않을 때(로그인·멤버십·라이브 자동 자막 등), 쿠키를 주면
 > **익명 시도 실패 후 쿠키로 자동 재시도**합니다. `--cookies` 파일이 `--cookies-from-browser`보다 우선합니다.
@@ -241,14 +274,30 @@ projects/<name>/
 
 | 단계 | 모듈 | 하는 일 |
 | --- | --- | --- |
-| ① 인제스트 | `pipeline/ingest.mjs` | 유튜브 자막(yt-dlp)·블로그 본문·SRT에서 원문 텍스트 추출 |
-| ② 요약 | `pipeline/summarize.mjs` | 원문 → 씬 스크립트. `ANTHROPIC_API_KEY` 있으면 Claude, 없으면 추출식 폴백 |
-| ③ 내레이션 | `pipeline/narrate.mjs` | 자막 line 단위 TTS → `ffprobe`로 길이 측정 → `narration.wav` + 타이밍 |
-| ④ 컴포지션 | `pipeline/compose.mjs` | 스크립트+타이밍 → HyperFrames `index.html`(GSAP 모션·동기화 자막) |
+| ① 인제스트 | `pipeline/ingest.mjs` | 유튜브 자막(yt-dlp + 쿠키 폴백)·블로그 본문·SRT에서 원문 텍스트 추출 |
+| ② 요약 | `pipeline/summarize.mjs` | 원문 → 씬 스크립트. **Ollama(gemma4) → Claude API → 추출식** 순으로 폴백 |
+| ③ 내레이션 | `pipeline/narrate.mjs` | 자막 line 단위 TTS(기본 Edge) → `ffprobe`로 길이 측정 → `narration.wav` + 타이밍 |
+| ④ 컴포지션 | `pipeline/compose.mjs` | 스크립트+타이밍 → HyperFrames `index.html`(인트로 카드 + GSAP 모션·동기화 자막) |
 | ⑤ 렌더 | `pipeline/render.mjs` | `npx hyperframes render` → MP4 (`lint`/`snapshot` 헬퍼 포함) |
 
 > "자막 line별로 TTS를 만들어 실제 길이를 측정"하기 때문에 오디오와 화면 모션이 정확히 동기화됩니다.
 > 데이터 스키마·내부 동작·설계 함정은 [`_docs/architecture.md`](_docs/architecture.md) 에 자세히 있습니다.
+
+### 인트로 카드 (앞 2.5초)
+
+영상 시작 직후 **정적 인트로 카드**가 잠깐 표시됩니다 — `오늘의 요약` 라벨 + 제목 + 부제 + 출처 도메인.
+시청자가 어떤 영상의 요약인지 먼저 인지한 뒤 본 설명이 시작됩니다. 길이·내용을 조정하려면
+`pipeline/narrate.mjs` 의 `INTRO` 상수와 `pipeline/compose.mjs` 의 `renderIntro()` 를 보세요.
+
+### 캐시(중간 산출물)
+
+| 파일 | 의미 | 효과 |
+| --- | --- | --- |
+| `projects/<n>/raw.json` | 인제스트 본문 캐시 | 재실행 시 yt-dlp/HTTP 호출 없이 즉시 진행 (YouTube 429 회피) |
+| `projects/<n>/script.json` | 요약 결과 캐시 | gemma4:26b 같은 무거운 추론 반복 회피 |
+
+재실행은 자동으로 가장 진행된 단계부터 이어집니다. 처음부터 다시 만들려면 `--refresh` 옵션을 주거나
+해당 파일을 지우세요. `audio/` 만 지우면 narrate부터, `out/` 만 지우면 렌더만 다시 돕니다.
 
 ---
 
@@ -271,7 +320,11 @@ projects/<name>/
 | --- | --- |
 | `ANTHROPIC_API_KEY` | 고품질 요약(Claude API) 활성화 |
 | `HF_LLM_MODEL` | 요약 모델 변경 (기본 `claude-sonnet-4-6`) |
-| `HF_TTS_BACKEND` | TTS 백엔드 강제 (`say` \| `kokoro`) |
+| `HF_TTS_BACKEND` | TTS 백엔드 강제 (`edge`(기본) \| `say` \| `kokoro` \| `xtts`) |
+| `HF_EDGE_VOICE` | Edge TTS 음성 ID (기본 `ko-KR-SunHiNeural`) |
+| `HF_XTTS_VENV` | XTTS venv 경로 오버라이드 (기본 `~/.cache/hyperframe-ai/xtts-venv`) |
+| `HF_OLLAMA_URL` | Ollama 서버 URL (기본 `http://localhost:11434`) |
+| `HF_OLLAMA_MODEL` | Ollama 모델명 (기본 `gemma4:26b`) |
 | `HF_YT_COOKIES` | (유튜브) 쿠키 파일 경로 — CLI `--cookies` 미지정 시 폴백 |
 | `HF_YT_COOKIES_FROM_BROWSER` | (유튜브) 쿠키 추출 브라우저 — CLI 미지정 시 폴백 |
 

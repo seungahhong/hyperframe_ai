@@ -39,30 +39,66 @@ async function main() {
   const log = (m) => console.log(`\x1b[36m▶ ${m}\x1b[0m`);
 
   // 1) 스크립트 확보: 사전 작성(--script) 또는 (인제스트→요약)
+  //    중간 산출물(raw.json, script.json)을 projects/<name>/ 에 캐시한다.
+  //    실패한 단계만 다시 시도하면 되도록 — gemma4:26b 같은 무거운 요약 추론은
+  //    한 번 성공하면 재실행 시 재사용. `--refresh` 로 재수집/재요약 강제.
   let script;
   if (a.script) {
     log(`스크립트 로드: ${a.script}`);
     script = JSON.parse(await readFile(a.script, "utf8"));
   } else {
-    log(`인제스트 (${a.type})...`);
-    const src = await ingest({
-      type: a.type,
-      url: a.url,
-      file: a.file,
-      lang: a.lang,
-      cookies: a.cookies,
-      cookiesFromBrowser: a["cookies-from-browser"],
-    });
-    log(`본문 ${src.text.length}자 확보 — "${src.title}"`);
-    log(`요약 → 씬 스크립트...`);
-    script = await summarize({
-      text: src.text,
-      title: src.title,
-      source: src.source,
-      lang: a.lang,
-      topic: a.topic,
-    });
-    log(`씬 ${script.scenes.length}개 생성`);
+    const cacheName = a.name;
+    const rawCache = cacheName ? join(ROOT, "projects", cacheName, "raw.json") : null;
+    const scriptCache = cacheName ? join(ROOT, "projects", cacheName, "script.json") : null;
+
+    // 요약 결과 캐시 우선 (가장 비싼 단계). 있으면 인제스트도 스킵.
+    if (scriptCache && !a.refresh) {
+      try {
+        script = JSON.parse(await readFile(scriptCache, "utf8"));
+        log(`스크립트 캐시 재사용: ${scriptCache} (씬 ${script.scenes.length}개)`);
+      } catch {}
+    }
+
+    if (!script) {
+      let src;
+      if (rawCache && !a.refresh) {
+        try {
+          src = JSON.parse(await readFile(rawCache, "utf8"));
+          log(`본문 캐시 재사용: ${rawCache} (${src.text.length}자)`);
+        } catch {}
+      }
+      if (!src) {
+        log(`인제스트 (${a.type})...`);
+        src = await ingest({
+          type: a.type,
+          url: a.url,
+          file: a.file,
+          lang: a.lang,
+          cookies: a.cookies,
+          cookiesFromBrowser: a["cookies-from-browser"],
+        });
+        log(`본문 ${src.text.length}자 확보 — "${src.title}"`);
+        if (rawCache) {
+          await mkdir(dirname(rawCache), { recursive: true });
+          await writeFile(rawCache, JSON.stringify(src), "utf8");
+          log(`본문 캐시 저장: ${rawCache}`);
+        }
+      }
+      log(`요약 → 씬 스크립트...`);
+      script = await summarize({
+        text: src.text,
+        title: src.title,
+        source: src.source,
+        lang: a.lang,
+        topic: a.topic,
+      });
+      log(`씬 ${script.scenes.length}개 생성`);
+      if (scriptCache) {
+        await mkdir(dirname(scriptCache), { recursive: true });
+        await writeFile(scriptCache, JSON.stringify(script, null, 2), "utf8");
+        log(`스크립트 캐시 저장: ${scriptCache}`);
+      }
+    }
   }
 
   // 음성/속도 오버라이드 (CLI 우선)
